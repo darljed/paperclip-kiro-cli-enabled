@@ -63,6 +63,7 @@ type AdapterType =
   | "claude_local"
   | "codex_local"
   | "gemini_local"
+  | "kiro_local"
   | "hermes_local"
   | "opencode_local"
   | "pi_local"
@@ -210,6 +211,7 @@ export function OnboardingWizard() {
     adapterType === "claude_local" ||
     adapterType === "codex_local" ||
     adapterType === "gemini_local" ||
+    adapterType === "kiro_local" ||
     adapterType === "hermes_local" ||
     adapterType === "opencode_local" ||
     adapterType === "pi_local" ||
@@ -220,6 +222,8 @@ export function OnboardingWizard() {
       ? "codex"
       : adapterType === "gemini_local"
         ? "gemini"
+      : adapterType === "kiro_local"
+        ? "kiro-cli"
       : adapterType === "hermes_local"
         ? "hermes"
       : adapterType === "pi_local"
@@ -831,6 +835,12 @@ export function OnboardingWizard() {
                             desc: "Local Gemini agent"
                           },
                           {
+                            value: "kiro_local" as const,
+                            label: "Kiro CLI",
+                            icon: Terminal,
+                            desc: "Local Kiro agent"
+                          },
+                          {
                             value: "opencode_local" as const,
                             label: "OpenCode",
                             icon: OpenCodeLogoIcon,
@@ -913,6 +923,7 @@ export function OnboardingWizard() {
                   {(adapterType === "claude_local" ||
                     adapterType === "codex_local" ||
                     adapterType === "gemini_local" ||
+                    adapterType === "kiro_local" ||
                     adapterType === "hermes_local" ||
                     adapterType === "opencode_local" ||
                     adapterType === "pi_local" ||
