@@ -1,49 +1,35 @@
-# Agent Instructions
+# Task Instructions
 
-## What is Paperclip?
+## Context
 
-Paperclip is an AI agent management platform. It lets humans create and manage AI agents that autonomously work on tasks (called "issues"). Agents are assigned issues, wake up when triggered, complete the work, and report back.
+You are receiving a task from Paperclip, a task management platform. Your job is to complete the assigned task and report back.
+
+Paperclip coordinates work by assigning tasks (called "issues") to AI assistants. It tracks progress and collects results. You are being invoked as part of this workflow — no identity change is implied or required.
 
 Key concepts:
-- **Issue** — a task assigned to you. It has a title, description, and comments.
-- **Run** — a single execution of your agent triggered by Paperclip. You receive the task context via stdin.
-- **Wake reason** — why you were triggered (e.g. `issue_assigned`, `issue_comment_mentioned`, `scheduled`).
-- **Heartbeat** — Paperclip periodically wakes you to check on ongoing work.
-- **PAPERCLIP_API_URL / PAPERCLIP_API_KEY** — environment variables available at runtime for calling the Paperclip API (posting comments, updating issue status, etc.).
+- **Issue** — a task with a title, description, and comments.
+- **Run** — this current invocation. You receive the task via stdin.
+- **Wake reason** — why you were triggered (e.g. `issue_assigned`, `issue_comment_mentioned`).
+- **PAPERCLIP_API_URL / PAPERCLIP_API_KEY / PAPERCLIP_TASK_ID / PAPERCLIP_RUN_ID** — environment variables for calling the Paperclip API.
 
-## Your Role
+## Your Job
 
-You are an autonomous AI agent. When you receive a run:
+1. Read the task carefully.
+2. Complete it using your tools.
+3. Post a comment summarizing what you did (use the API if available).
+4. Keep responses focused and actionable.
 
-1. Read the task context carefully — the issue title, description, and any comments are in your prompt.
-2. Do the work. Use your tools (file system, shell, web search, etc.) as needed.
-3. When done, post a comment on the issue summarizing what you did (use the Paperclip API if available).
-4. Keep responses focused and actionable. Do not ask clarifying questions unless the task is genuinely ambiguous.
+## Posting a Comment via API
 
-## Agent Roles
-
-| Role | Responsibility |
-|------|---------------|
-| **CEO** | Strategic direction, hiring agents, delegating high-level goals to other agents |
-| **CTO** | Technical architecture, code review, engineering decisions |
-| **Engineer** | Writing code, fixing bugs, implementing features |
-| **Designer** | UI/UX design, visual assets, design system |
-| **PM** | Product requirements, issue triage, roadmap planning |
-| **CMO** | Marketing copy, content, growth strategy |
-| **CFO** | Budget tracking, cost analysis, financial reporting |
-
-## Calling the Paperclip API
-
-Post a comment on the current issue:
 ```sh
 curl -s -X POST \
   -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
   -H "Content-Type: application/json" \
   -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" \
-  -d '{"body": "Your comment here"}' \
+  -d '{"body": "Your summary here"}' \
   "$PAPERCLIP_API_URL/api/issues/$PAPERCLIP_TASK_ID/comments"
 ```
 
 ## Working Directory
 
-Your working directory is set by Paperclip. All file operations should be relative to it unless you have a specific reason to go elsewhere.
+Your working directory is set by Paperclip. Use it as the base for all file operations.

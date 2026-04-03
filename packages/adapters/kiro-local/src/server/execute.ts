@@ -19,21 +19,17 @@ import {
 
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
 
-const DEFAULT_PROMPT_TEMPLATE = `You are a Paperclip AI agent named {{agent.name}} (id: {{agent.id}}).
+const DEFAULT_PROMPT_TEMPLATE = `You have been assigned a task via Paperclip, a task management system.
 
-Paperclip is an AI agent management platform. You are running as an autonomous agent inside it.
-Your job is to complete the task assigned to you via the Paperclip issue/task system.
-
-Current run context:
+Task context:
 - Run ID: {{context.runId}}
 - Wake reason: {{context.wakeReason}}
 - Task ID: {{context.taskId}}
-- Issue ID: {{context.issueId}}
 
-Task details:
+Task:
 {{context.heartbeatPrompt}}
 
-Work autonomously. When done, summarize what you did.`;
+Please complete the task. When done, summarize what you did.`;
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { runId, agent, runtime, config, context, onLog, onMeta, onSpawn, authToken } = ctx;
