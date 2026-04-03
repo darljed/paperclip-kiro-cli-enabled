@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "@paperclipai/adapter-utils";
 import {
@@ -15,7 +16,24 @@ import {
   renderTemplate,
   runChildProcess,
 } from "@paperclipai/adapter-utils/server-utils";
-import { parseKiroStreamJson } from "./parse.js";
+
+const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
+
+const DEFAULT_PROMPT_TEMPLATE = `You are a Paperclip AI agent named {{agent.name}} (id: {{agent.id}}).
+
+Paperclip is an AI agent management platform. You are running as an autonomous agent inside it.
+Your job is to complete the task assigned to you via the Paperclip issue/task system.
+
+Current run context:
+- Run ID: {{context.runId}}
+- Wake reason: {{context.wakeReason}}
+- Task ID: {{context.taskId}}
+- Issue ID: {{context.issueId}}
+
+Task details:
+{{context.heartbeatPrompt}}
+
+Work autonomously. When done, summarize what you did.`;
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { runId, agent, runtime, config, context, onLog, onMeta, onSpawn, authToken } = ctx;
@@ -25,6 +43,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const extraArgs = asStringArray(config.extraArgs);
   const timeoutSec = asNumber(config.timeoutSec, 0);
   const graceSec = asNumber(config.graceSec, 20);
+  const instructionsFilePath = asString(config.instructionsFilePath, "").trim();
 
   const workspaceContext = parseObject(context.paperclipWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");
@@ -64,10 +83,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const resolvedCommand = await resolveCommandForLogs(command, cwd, runtimeEnv);
   const loggedEnv = buildInvocationEnvForLogs(env, { runtimeEnv, resolvedCommand });
 
-  const promptTemplate = asString(
-    config.promptTemplate,
-    "You are agent {{agent.id}} ({{agent.name}}). Continue your Paperclip work.",
-  );
+  // Read instructions file and prepend to prompt
+  let instructionsContent = "";
+  if (instructionsFilePath) {
+    try {
+      instructionsContent = (await fs.readFile(instructionsFilePath, "utf-8")).trim();
+    } catch (err) {
+      await onLog("stderr", `[paperclip] Warning: could not read instructions file "${instructionsFilePath}": ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+
+  const promptTemplate = asString(config.promptTemplate, DEFAULT_PROMPT_TEMPLATE);
   const templateData = {
     agentId: agent.id,
     companyId: agent.companyId,
@@ -75,11 +101,23 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     company: { id: agent.companyId },
     agent,
     run: { id: runId, source: "on_demand" },
-    context,
+    context: {
+      ...context,
+      runId,
+      wakeReason: wakeReason ?? "",
+      taskId: wakeTaskId ?? "",
+      issueId: asString(context.issueId, ""),
+      heartbeatPrompt: asString(context.heartbeatPrompt, asString(context.prompt, "")),
+    },
   };
   const renderedPrompt = renderTemplate(promptTemplate, templateData);
   const sessionHandoffNote = asString(context.paperclipSessionHandoffMarkdown, "").trim();
-  const prompt = joinPromptSections([sessionHandoffNote, renderedPrompt]);
+
+  const prompt = joinPromptSections([
+    instructionsContent,
+    sessionHandoffNote,
+    renderedPrompt,
+  ]);
 
   const runtimeSessionParams = parseObject(runtime.sessionParams);
   const runtimeSessionId = asString(runtimeSessionParams.sessionId, runtime.sessionId ?? "");
@@ -89,15 +127,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     (runtimeSessionCwd.length === 0 || path.resolve(runtimeSessionCwd) === path.resolve(cwd));
   const sessionId = canResumeSession ? runtimeSessionId : null;
 
-  const buildArgs = (resumeSessionId: string | null) => {
-    const args = ["chat", "--no-interactive", "--trust-all-tools"];
-    if (resumeSessionId) args.push("--resume", resumeSessionId);
-    if (model) args.push("--model", model);
-    if (extraArgs.length > 0) args.push(...extraArgs);
-    return args;
-  };
-
-  const args = buildArgs(sessionId);
+  const args = ["chat", "--no-interactive", "--trust-all-tools"];
+  if (sessionId) args.push("--resume", sessionId);
+  if (model) args.push("--model", model);
+  if (extraArgs.length > 0) args.push(...extraArgs);
 
   if (onMeta) {
     await onMeta({
@@ -105,12 +138,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       command: resolvedCommand,
       cwd,
       commandArgs: args,
-      commandNotes: [],
+      commandNotes: instructionsFilePath ? [`Instructions prepended from ${instructionsFilePath}`] : [],
       env: loggedEnv,
       prompt,
       promptMetrics: {
         promptChars: prompt.length,
-        bootstrapPromptChars: 0,
+        bootstrapPromptChars: instructionsContent.length,
         sessionHandoffChars: sessionHandoffNote.length,
         heartbeatPromptChars: renderedPrompt.length,
       },
@@ -128,8 +161,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     onLog,
   });
 
-  // kiro-cli outputs plain text, not stream-json
-  const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
   const cleanedOutput = proc.stdout
     .replace(ANSI_RE, "")
     .replace(/^>\s*/gm, "")
