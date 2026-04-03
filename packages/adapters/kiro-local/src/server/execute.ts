@@ -19,17 +19,19 @@ import {
 
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
 
-const DEFAULT_PROMPT_TEMPLATE = `You have been assigned a task via Paperclip, a task management system.
+const DEFAULT_PROMPT_TEMPLATE = `You have been assigned a task via Paperclip.
 
-Task context:
-- Run ID: {{context.runId}}
-- Wake reason: {{context.wakeReason}}
+Task metadata:
 - Task ID: {{context.taskId}}
+- Wake reason: {{context.wakeReason}}
 
-Task:
-{{context.heartbeatPrompt}}
+Fetch the full task details using the Paperclip API, then complete the task:
 
-Please complete the task. When done, summarize what you did.`;
+  curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "$PAPERCLIP_API_URL/api/issues/{{context.taskId}}"
+
+When done, post a comment summarizing what you did:
+
+  curl -s -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "Content-Type: application/json" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -d '{"body": "summary here"}' "$PAPERCLIP_API_URL/api/issues/{{context.taskId}}/comments"`;
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { runId, agent, runtime, config, context, onLog, onMeta, onSpawn, authToken } = ctx;
