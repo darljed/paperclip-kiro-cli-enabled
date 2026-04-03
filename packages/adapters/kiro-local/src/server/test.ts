@@ -11,7 +11,6 @@ import {
   parseObject,
   runChildProcess,
 } from "@paperclipai/adapter-utils/server-utils";
-import { parseKiroStreamJson } from "./parse.js";
 
 function summarizeStatus(checks: AdapterEnvironmentCheck[]): AdapterEnvironmentTestResult["status"] {
   if (checks.some((c) => c.level === "error")) return "fail";
@@ -67,7 +66,7 @@ export async function testEnvironment(
     const probe = await runChildProcess(
       `kiro-envtest-${Date.now()}`,
       command,
-      ["chat", "--no-interactive", "--trust-all-tools", "--output-format", "stream-json"],
+      ["chat", "--no-interactive", "--trust-all-tools"],
       {
         cwd,
         env,
@@ -78,8 +77,8 @@ export async function testEnvironment(
       },
     );
 
-    const parsed = parseKiroStreamJson(probe.stdout);
-    const summary = parsed.summary.trim();
+    const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
+    const summary = probe.stdout.replace(ANSI_RE, "").replace(/^>\s*/gm, "").trim();
     const hasHello = /\bhello\b/i.test(summary);
 
     if (probe.timedOut) {

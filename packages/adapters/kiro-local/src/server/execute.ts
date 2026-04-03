@@ -14,7 +14,6 @@ import {
   resolveCommandForLogs,
   renderTemplate,
   runChildProcess,
-  parseJson,
 } from "@paperclipai/adapter-utils/server-utils";
 import { parseKiroStreamJson } from "./parse.js";
 
@@ -91,7 +90,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const sessionId = canResumeSession ? runtimeSessionId : null;
 
   const buildArgs = (resumeSessionId: string | null) => {
-    const args = ["chat", "--no-interactive", "--trust-all-tools", "--output-format", "stream-json"];
+    const args = ["chat", "--no-interactive", "--trust-all-tools"];
     if (resumeSessionId) args.push("--resume", resumeSessionId);
     if (model) args.push("--model", model);
     if (extraArgs.length > 0) args.push(...extraArgs);
@@ -129,13 +128,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     onLog,
   });
 
-  const parsedStream = parseKiroStreamJson(proc.stdout);
-  const parsed = parsedStream.resultJson ?? parseJson(proc.stdout);
-
-  const resolvedSessionId = parsedStream.sessionId ?? null;
-  const resolvedSessionParams = resolvedSessionId
-    ? ({ sessionId: resolvedSessionId, cwd } as Record<string, unknown>)
-    : null;
+  // kiro-cli outputs plain text, not stream-json
+  const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
+  const cleanedOutput = proc.stdout
+    .replace(ANSI_RE, "")
+    .replace(/^>\s*/gm, "")
+    .replace(/▸ Credits:.*$/gm, "")
+    .trim();
 
   if (proc.timedOut) {
     return {
@@ -144,18 +143,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       timedOut: true,
       errorMessage: `Timed out after ${timeoutSec}s`,
       errorCode: "timeout",
-      sessionParams: resolvedSessionParams,
     };
   }
 
-  if (!parsed) {
-    const stderrLine = proc.stderr.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "";
+  if ((proc.exitCode ?? 0) !== 0) {
+    const stderrLine = proc.stderr.replace(ANSI_RE, "").split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "";
     return {
       exitCode: proc.exitCode,
       signal: proc.signal,
       timedOut: false,
       errorMessage: stderrLine || `kiro-cli exited with code ${proc.exitCode ?? -1}`,
-      sessionParams: resolvedSessionParams,
+      summary: cleanedOutput || undefined,
     };
   }
 
@@ -163,13 +161,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     exitCode: proc.exitCode,
     signal: proc.signal,
     timedOut: false,
-    errorMessage: (proc.exitCode ?? 0) === 0 ? null : `kiro-cli exited with code ${proc.exitCode ?? -1}`,
-    usage: parsedStream.usage ?? undefined,
-    sessionId: resolvedSessionId,
-    sessionParams: resolvedSessionParams,
-    sessionDisplayId: resolvedSessionId,
-    costUsd: parsedStream.costUsd,
-    resultJson: parsed,
-    summary: parsedStream.summary,
+    errorMessage: null,
+    summary: cleanedOutput,
   };
 }
