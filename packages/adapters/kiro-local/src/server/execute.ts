@@ -19,19 +19,30 @@ import {
 
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHFJA-Z]/g;
 
-const DEFAULT_PROMPT_TEMPLATE = `You have been assigned a task via Paperclip.
+async function fetchIssueContent(apiUrl: string, apiKey: string, issueId: string): Promise<string> {
+  try {
+    const res = await fetch(`${apiUrl}/api/issues/${issueId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return "";
+    const data = await res.json() as Record<string, unknown>;
+    const title = typeof data.title === "string" ? data.title : "";
+    const description = typeof data.description === "string" ? data.description : "";
+    const parts = [title, description].filter(Boolean);
+    return parts.join("\n\n");
+  } catch {
+    return "";
+  }
+}
 
-Task metadata:
-- Task ID: {{context.taskId}}
-- Wake reason: {{context.wakeReason}}
+const DEFAULT_PROMPT_TEMPLATE = `You have been assigned the following task. Please complete it.
 
-Fetch the full task details using the Paperclip API, then complete the task:
+---
+{{taskContent}}
+---
 
-  curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "$PAPERCLIP_API_URL/api/issues/{{context.taskId}}"
-
-When done, post a comment summarizing what you did:
-
-  curl -s -X POST -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "Content-Type: application/json" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -d '{"body": "summary here"}' "$PAPERCLIP_API_URL/api/issues/{{context.taskId}}/comments"`;
+Working directory: {{cwd}}
+Task ID: {{context.taskId}}`;
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { runId, agent, runtime, config, context, onLog, onMeta, onSpawn, authToken } = ctx;
@@ -92,20 +103,30 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
 
   const promptTemplate = asString(config.promptTemplate, DEFAULT_PROMPT_TEMPLATE);
+
+  // Fetch issue content server-side so kiro gets the task directly
+  const taskId = asString(context.taskId, "") || asString(context.issueId, "");
+  const apiUrl = env.PAPERCLIP_API_URL || `http://localhost:${process.env.PORT ?? "3100"}`;
+  const apiKey = authToken ?? "";
+  const taskContent = taskId && apiKey
+    ? await fetchIssueContent(apiUrl, apiKey, taskId)
+    : "";
+
   const templateData = {
     agentId: agent.id,
     companyId: agent.companyId,
     runId,
+    cwd,
+    taskContent: taskContent || "(no task content available)",
     company: { id: agent.companyId },
     agent,
     run: { id: runId, source: "on_demand" },
     context: {
       ...context,
       runId,
-      wakeReason: wakeReason ?? "",
-      taskId: wakeTaskId ?? "",
+      wakeReason: asString(context.wakeReason, ""),
+      taskId,
       issueId: asString(context.issueId, ""),
-      heartbeatPrompt: asString(context.heartbeatPrompt, asString(context.prompt, "")),
     },
   };
   const renderedPrompt = renderTemplate(promptTemplate, templateData);
